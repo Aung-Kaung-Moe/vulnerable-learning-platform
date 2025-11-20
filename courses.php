@@ -168,13 +168,13 @@ if ($lfiParam !== '') {
         </div>
 
         <nav class="hidden md:flex items-center gap-7 text-sm text-slate-200">
-            <a href="index.php" class="relative hover:text-emerald-300 after:absolute after:left-0 after:-bottom-1 after:h-[2px] after:w-0 hover:after:w-full after:bg-emerald-400 after:transition-all">
+            <a href="dashboard.php" class="relative hover:text-emerald-300 after:absolute after:left-0 after:-bottom-1 after:h-[2px] after:w-0 hover:after:w-full after:bg-emerald-400 after:transition-all">
                 Dashboard
             </a>
             <a href="courses.php" class="relative text-emerald-300 after:absolute after:left-0 after:-bottom-1 after:h-[2px] after:w-full after:bg-emerald-400">
                 Courses
             </a>
-            <a href="#" class="relative hover:text-emerald-300 after:absolute after:left-0 after:-bottom-1 after:h-[2px] after:w-0 hover:after:w-full after:bg-emerald-400 after:transition-all">
+            <a href="tracks.php" class="relative hover:text-emerald-300 after:absolute after:left-0 after:-bottom-1 after:h-[2px] after:w-0 hover:after:w-full after:bg-emerald-400 after:transition-all">
                 Tracks
             </a>
             <a href="#" class="relative hover:text-emerald-300 after:absolute after:left-0 after:-bottom-1 after:h-[2px] after:w-0 hover:after:w-full after:bg-emerald-400 after:transition-all">
@@ -211,7 +211,7 @@ if ($lfiParam !== '') {
         <div class="max-w-6xl mx-auto px-5 py-3 flex flex-col gap-2 text-sm text-slate-100">
             <a href="index.php" class="py-1 hover:text-emerald-300">Dashboard</a>
             <a href="courses.php" class="py-1 text-emerald-300">Courses</a>
-            <a href="#" class="py-1 hover:text-emerald-300">Tracks</a>
+            <a href="tracks.php" class="py-1 hover:text-emerald-300">Tracks</a>
             <a href="#" class="py-1 hover:text-emerald-300">Labs</a>
             <a href="logout.php" class="py-1 text-rose-300 hover:text-rose-200">Log out</a>
         </div>
@@ -251,12 +251,12 @@ if ($lfiParam !== '') {
                 <div class="flex flex-wrap gap-2">
                     <?php
                     $tags = [
-                        'all'        => 'All',
-                        'Web'        => 'Web',
-                        'Pwn'        => 'Pwn',
-                        'Reverse'    => 'Reverse',
-                        'Forensics'  => 'Forensics',
-                        'Crypto'     => 'Crypto',
+                        'all'         => 'All',
+                        'Web'         => 'Web',
+                        'Pwn'         => 'Pwn',
+                        'Reverse'     => 'Reverse',
+                        'Forensics'   => 'Forensics',
+                        'Crypto'      => 'Crypto',
                     ];
                     foreach ($tags as $val => $label):
                         $selected = (strtolower($activeTag) === strtolower($val));

@@ -8,18 +8,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = $_POST['username'] ?? '';
     $password = $_POST['password'] ?? '';
 
-    // 🚨 INTENTIONALLY VULNERABLE SQLI (for lab use only)
-    // Example payload: ' OR 1=1 --
     $query = "SELECT * FROM users WHERE username = '$username' AND password = '$password' LIMIT 1";
 
     $result = $mysqli->query($query);
     if ($result && $result->num_rows === 1) {
         $user = $result->fetch_assoc();
 
-        // set session data
         $_SESSION['user']  = $user['username'];
         $_SESSION['email'] = $user['email'] ?? '';
-        // 🔥 NEW: set role (comes from your ALTER TABLE users ADD role ... )
         $_SESSION['role']  = $user['role'] ?? 'user';
 
         header('Location: index.php');
