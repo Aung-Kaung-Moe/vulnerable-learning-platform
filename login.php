@@ -15,8 +15,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $result = $mysqli->query($query);
     if ($result && $result->num_rows === 1) {
         $user = $result->fetch_assoc();
-        $_SESSION['user'] = $user['username'];
-        $_SESSION['email'] = $user['email'];
+
+        // set session data
+        $_SESSION['user']  = $user['username'];
+        $_SESSION['email'] = $user['email'] ?? '';
+        // 🔥 NEW: set role (comes from your ALTER TABLE users ADD role ... )
+        $_SESSION['role']  = $user['role'] ?? 'user';
+
         header('Location: index.php');
         exit;
     } else {
