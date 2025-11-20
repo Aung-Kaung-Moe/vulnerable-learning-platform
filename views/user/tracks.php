@@ -1,18 +1,17 @@
 <?php
-session_start();
-if (!isset($_SESSION['user'])) {
-    header('Location: login.php');
-    exit;
-}
+// views/user/tracks.php
 
-$user    = $_SESSION['user'];
-$email   = $_SESSION['email'] ?? '';
-$role    = $_SESSION['role'] ?? 'user';
-$isAdmin = ($role === 'admin');
+require_once __DIR__ . '/../../app/helpers.php';
+
+auth_require_login();
+
+$user    = current_user_name();
+$email   = current_user_email();
+$role    = auth_role();
+$isAdmin = auth_is_admin();
 
 /**
  * Fake user → ID map for the "progress API"
- * (makes the IDOR easier to explore).
  */
 $knownUserIds = [
     'admin'   => 1,
@@ -129,8 +128,7 @@ $userProgress = [
             2 => ['status' => 'Completed',    'progress' => 100],
             5 => ['status' => 'In progress',  'progress' => 40],
         ],
-        // 🧨 exposed via IDOR on ?export_user_id=1
-        'internal_note' => 'FLAG{tracks_idor_leaks_admin_progress}',
+        'internal_note' => 'admin:admin123',
     ],
     2 => [
         'user_id'   => 2,
@@ -157,14 +155,13 @@ $userProgress = [
 $currentUserState = $userProgress[$currentUserId] ?? ['tracks' => []];
 
 // ----------------------------
-// Stored notes (intentionally XSS-prone)
+// Stored notes (XSS)
 // ----------------------------
 
 if (!isset($_SESSION['track_notes'])) {
     $_SESSION['track_notes'] = [];
 }
 
-// XSS note handler (no CSRF, no sanitization on output)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['track_id'], $_POST['note']) && !isset($_POST['import_progress'])) {
     $tid  = (int)($_POST['track_id']);
     $note = $_POST['note']; // raw, will be echoed later
@@ -173,19 +170,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['track_id'], $_POST['n
 }
 
 // ----------------------------
-// XML Import (XXE) handler
+// XML Import (XXE)
 // ----------------------------
 
 $xmlImportMessage = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['import_progress']) && isset($_FILES['progress_xml'])) {
-    $fileTmp = $_FILES['progress_xml']['tmp_name'] ?? '';
+    $fileTmp    = $_FILES['progress_xml']['tmp_name'] ?? '';
     $xmlContent = $fileTmp ? @file_get_contents($fileTmp) : '';
 
     if ($xmlContent === '') {
         $xmlImportMessage = 'No XML content uploaded.';
     } else {
-        // 🔥 XXE: external entities + DTD loading enabled.
         libxml_disable_entity_loader(false);
         $dom = new DOMDocument();
 
@@ -196,7 +192,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['import_progress']) &&
             $importTracks = (string)($sx->trackCount ?? '0');
             $importNote   = (string)($sx->note ?? '');
 
-            // We’re not really updating DB; just showing something back.
             $xmlImportMessage = "Imported progress for '{$importUser}' ({$importTracks} tracks). Note: {$importNote}";
         } else {
             $xmlImportMessage = 'Failed to parse XML. Is it valid?';
@@ -205,11 +200,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['import_progress']) &&
 }
 
 // ----------------------------
-// IDOR / Broken Access Control: JSON export of "my" tracks
+// IDOR JSON export
 // ----------------------------
 
 if (isset($_GET['export_user_id']) && $_GET['export_user_id'] !== '') {
-    $exportId = (int)$_GET['export_user_id'];  // trusts user input
+    $exportId = (int)$_GET['export_user_id'];
     $payload  = $userProgress[$exportId] ?? null;
 
     header('Content-Type: application/json; charset=utf-8');
@@ -246,86 +241,16 @@ $filteredTracks = array_filter($tracks, function ($track) use ($activeTag, $acti
     return true;
 });
 
+$pageTitle = 'NovaLearn | Tracks';
+require __DIR__ . '/../shared/header.php';
+$currentPage = 'tracks';
+require __DIR__ . '/../shared/navbar.php';
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>NovaLearn | Tracks</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="min-h-screen bg-slate-950 text-slate-100">
-<!-- Background -->
+
 <div class="pointer-events-none fixed inset-0 -z-10 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950"></div>
 <div class="pointer-events-none fixed inset-0 -z-10 opacity-70 bg-[radial-gradient(circle_at_top,_#22c55e33_0,_transparent_55%)]"></div>
 <div class="pointer-events-none fixed inset-0 -z-10 opacity-60 bg-[radial-gradient(circle_at_bottom,_#6366f133_0,_transparent_60%)]"></div>
 
-<header class="border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-xl sticky top-0 z-20">
-    <div class="max-w-6xl mx-auto px-5 py-3 flex items-center justify-between gap-4">
-        <div class="flex items-center gap-3">
-            <div class="h-10 w-10 rounded-3xl bg-gradient-to-br from-indigo-500 to-emerald-400 flex items-center justify-center text-xl shadow-lg shadow-emerald-500/40">
-                🎓
-            </div>
-            <div>
-                <div class="font-semibold tracking-tight text-base">NovaLearn</div>
-                <div class="text-xs text-slate-400 -mt-0.5">Offensive Security Learning</div>
-            </div>
-        </div>
-
-        <nav class="hidden md:flex items-center gap-7 text-sm text-slate-200">
-            <a href="dashboard.php" class="relative hover:text-emerald-300 after:absolute after:left-0 after:-bottom-1 after:h-[2px] after:w-0 hover:after:w-full after:bg-emerald-400 after:transition-all">
-                Dashboard
-            </a>
-            <a href="courses.php" class="relative hover:text-emerald-300 after:absolute after:left-0 after:-bottom-1 after:h-[2px] after:w-0 hover:after:w-full after:bg-emerald-400 after:transition-all">
-                Courses
-            </a>
-            <a href="tracks.php" class="relative text-emerald-300 after:absolute after:left-0 after:-bottom-1 after:h-[2px] after:w-full after:bg-emerald-400">
-                Tracks
-            </a>
-            <a href="labs.php" class="relative hover:text-emerald-300 after:absolute after:left-0 after:-bottom-1 after:h-[2px] after:w-0 hover:after:w-full after:bg-emerald-400 after:transition-all">
-                Labs
-            </a>
-        </nav>  
-
-        <div class="flex items-center gap-3">
-            <div class="hidden sm:flex flex-col items-end leading-tight">
-                <span class="text-[11px] text-slate-400">Logged in as</span>
-                <span class="text-sm text-slate-50 font-medium">
-                    <?php echo htmlspecialchars($user); ?>
-                </span>
-            </div>
-
-            <a href="logout.php" class="hidden md:inline text-xs text-slate-300 hover:text-rose-300">
-                Log out
-            </a>
-
-            <button
-                id="nav-toggle"
-                type="button"
-                class="md:hidden inline-flex items-center justify-center rounded-xl p-2 border border-slate-700/80 bg-slate-900/80 text-slate-100 hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                aria-label="Toggle navigation"
-            >
-                <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none"
-                    viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M4 6h16M4 12h16M4 18h16"/>
-                </svg>
-            </button>
-        </div>
-    </div>
-
-    <div id="mobile-menu" class="md:hidden hidden border-t border-slate-800/80 bg-slate-950/95">
-        <div class="max-w-6xl mx-auto px-5 py-3 flex flex-col gap-2 text-sm text-slate-100">
-            <a href="dashboard.php" class="py-1 text-emerald-300">Dashboard</a>
-            <a href="courses.php" class="py-1 hover:text-emerald-300">Courses</a>
-            <a href="tracks.php" class="py-1 hover:text-emerald-300">Tracks</a>
-            <a href="#" class="py-1 hover:text-emerald-300">Labs</a>
-            <a href="logout.php" class="py-1 text-rose-300 hover:text-rose-200">Log out</a>
-        </div>
-    </div>
-</header>
-
-<!-- MAIN -->
 <main class="max-w-6xl mx-auto px-5 py-8 space-y-8">
 
     <!-- Hero + API card -->
@@ -355,119 +280,120 @@ $filteredTracks = array_filter($tracks, function ($track) use ($activeTag, $acti
                     Export your track progress as JSON for dashboards or notes.
                 </p>
                 <?php
-                $exampleExportUrl = 'tracks.php?export_user_id=' . urlencode($currentUserId);
+                $exampleExportUrl = 'index.php?page=tracks&export_user_id=' . urlencode($currentUserId);
                 ?>
                 <div class="font-mono text-[10px] bg-slate-950/80 border border-slate-800 rounded-xl px-3 py-2 mb-3 overflow-x-auto">
-                    GET <?php echo htmlspecialchars($exampleExportUrl, ENT_QUOTES, 'UTF-8'); ?>
+                    GET <?= h($exampleExportUrl) ?>
 
                 </div>
-                <a href="<?php echo htmlspecialchars($exampleExportUrl, ENT_QUOTES, 'UTF-8'); ?>"
+                <a href="<?= h($exampleExportUrl) ?>"
                    class="inline-flex items-center justify-center w-full rounded-xl bg-emerald-500/90 text-slate-950 font-semibold py-1.5 text-[11px] hover:bg-emerald-400 transition">
                     Download my JSON
                 </a>
                 <p class="mt-2 text-[10px] text-slate-500">
-                    Tip: curious attackers might try other <code class="font-mono text-[10px] text-emerald-300">export_user_id</code> values.
+                    Tip: curious attackers might try other
+                    <code class="font-mono text-[10px] text-emerald-300">export_user_id</code> values.
                 </p>
             </div>
         </aside>
     </section>
 
-    <!-- Filters + XML Import stacked (no big empty space) -->
-<section class="space-y-4">
-    <!-- Filters row -->
-    <div>
-        <form method="get" class="flex flex-wrap items-center gap-3 text-xs">
-            <div class="flex items-center gap-2">
-                <span class="text-slate-400 text-[11px]">Tag</span>
-                <select name="tag" class="bg-slate-900/80 border border-slate-700/80 rounded-full px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-400">
-                    <?php
-                    $tags = ['all' => 'All', 'Web' => 'Web', 'Pwn' => 'Pwn', 'Forensics' => 'Forensics', 'Reverse' => 'Reverse', 'Crypto' => 'Crypto'];
-                    foreach ($tags as $value => $label):
-                        $selected = ($activeTag === $value) ? 'selected' : '';
-                    ?>
-                        <option value="<?php echo htmlspecialchars($value, ENT_QUOTES, 'UTF-8'); ?>" <?php echo $selected; ?>>
-                            <?php echo htmlspecialchars($label, ENT_QUOTES, 'UTF-8'); ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
+    <!-- Filters + XML Import -->
+    <section class="space-y-4">
+        <!-- Filters row -->
+        <div>
+            <form method="get" class="flex flex-wrap items-center gap-3 text-xs">
+                <input type="hidden" name="page" value="tracks">
 
-            <div class="flex items-center gap-2">
-                <span class="text-slate-400 text-[11px]">Level</span>
-                <select name="level" class="bg-slate-900/80 border border-slate-700/80 rounded-full px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-400">
-                    <?php
-                    $levels = ['all' => 'All', 'Beginner' => 'Beginner', 'Intermediate' => 'Intermediate', 'Advanced' => 'Advanced'];
-                    foreach ($levels as $value => $label):
-                        $selected = ($activeLevel === $value) ? 'selected' : '';
-                    ?>
-                        <option value="<?php echo htmlspecialchars($value, ENT_QUOTES, 'UTF-8'); ?>" <?php echo $selected; ?>>
-                            <?php echo htmlspecialchars($label, ENT_QUOTES, 'UTF-8'); ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
+                <div class="flex items-center gap-2">
+                    <span class="text-slate-400 text-[11px]">Tag</span>
+                    <select name="tag" class="bg-slate-900/80 border border-slate-700/80 rounded-full px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-400">
+                        <?php
+                        $tags = ['all' => 'All', 'Web' => 'Web', 'Pwn' => 'Pwn', 'Forensics' => 'Forensics', 'Reverse' => 'Reverse', 'Crypto' => 'Crypto'];
+                        foreach ($tags as $value => $label):
+                            $selected = ($activeTag === $value) ? 'selected' : '';
+                        ?>
+                            <option value="<?= h($value) ?>" <?= $selected ?>>
+                                <?= h($label) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
 
-            <button type="submit"
-                    class="inline-flex items-center gap-1 rounded-full border border-slate-700 px-3 py-1.5 text-[11px] font-medium text-slate-100 bg-slate-900/80 hover:bg-slate-800 transition">
-                Apply
-            </button>
+                <div class="flex items-center gap-2">
+                    <span class="text-slate-400 text-[11px]">Level</span>
+                    <select name="level" class="bg-slate-900/80 border border-slate-700/80 rounded-full px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-400">
+                        <?php
+                        $levels = ['all' => 'All', 'Beginner' => 'Beginner', 'Intermediate' => 'Intermediate', 'Advanced' => 'Advanced'];
+                        foreach ($levels as $value => $label):
+                            $selected = ($activeLevel === $value) ? 'selected' : '';
+                        ?>
+                            <option value="<?= h($value) ?>" <?= $selected ?>>
+                                <?= h($label) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
 
-            <a href="tracks.php" class="text-[11px] text-slate-400 hover:text-emerald-300">
-                Reset
-            </a>
+                <button type="submit"
+                        class="inline-flex items-center gap-1 rounded-full border border-slate-700 px-3 py-1.5 text-[11px] font-medium text-slate-100 bg-slate-900/80 hover:bg-slate-800 transition">
+                    Apply
+                </button>
 
-            <span class="text-[11px] text-slate-500">
-                Showing <span class="text-slate-100"><?php echo count($filteredTracks); ?></span> /
-                <span class="text-slate-100"><?php echo count($tracks); ?></span>
-            </span>
-        </form>
-    </div>
+                <a href="index.php?page=tracks" class="text-[11px] text-slate-400 hover:text-emerald-300">
+                    Reset
+                </a>
 
-    <!-- XML Import card (XXE) -->
-<div class="w-full max-w-2xl mx-auto">
-    <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 p-4 text-xs shadow-lg shadow-indigo-500/10">
-        <div class="flex items-center justify-between mb-2">
-            <span class="font-medium text-slate-100">Import Track Progress</span>
-            <span class="text-[10px] text-slate-400">XML / beta</span>
+                <span class="text-[11px] text-slate-500">
+                    Showing <span class="text-slate-100"><?= count($filteredTracks) ?></span> /
+                    <span class="text-slate-100"><?= count($tracks) ?></span>
+                </span>
+            </form>
         </div>
 
-        <p class="text-[11px] text-slate-400 mb-3">
-            Upload a <code class="font-mono text-[11px] text-emerald-300">progress.xml</code> exported from another NovaLearn instance
-            to restore your track completion state.
-        </p>
+        <!-- XML Import card (XXE) -->
+        <div class="w-full max-w-2xl mx-auto">
+            <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 p-4 text-xs shadow-lg shadow-indigo-500/10">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="font-medium text-slate-100">Import Track Progress</span>
+                    <span class="text-[10px] text-slate-400">XML / beta</span>
+                </div>
 
-        <?php if ($xmlImportMessage): ?>
-            <div class="mb-2 rounded-xl border border-emerald-500/60 bg-emerald-500/10 px-3 py-2">
-                <p class="text-[11px] text-emerald-100 font-medium mb-1">Import result</p>
-                <pre class="text-[10px] text-emerald-100 whitespace-pre-wrap max-h-32 overflow-y-auto">
-<?php echo htmlspecialchars($xmlImportMessage, ENT_QUOTES, 'UTF-8'); ?>
-                </pre>
+                <p class="text-[11px] text-slate-400 mb-3">
+                    Upload a <code class="font-mono text-[11px] text-emerald-300">progress.xml</code> exported from another NovaLearn instance
+                    to restore your track completion state.
+                </p>
+
+                <?php if ($xmlImportMessage): ?>
+                    <div class="mb-2 rounded-xl border border-emerald-500/60 bg-emerald-500/10 px-3 py-2">
+                        <p class="text-[11px] text-emerald-100 font-medium mb-1">Import result</p>
+                        <pre class="text-[10px] text-emerald-100 whitespace-pre-wrap max-h-32 overflow-y-auto">
+<?= h($xmlImportMessage) ?>
+                        </pre>
+                    </div>
+                <?php endif; ?>
+
+                <form method="post" enctype="multipart/form-data" class="space-y-2">
+                    <input type="hidden" name="import_progress" value="1">
+                    <input type="file" name="progress_xml" accept=".xml,text/xml"
+                           class="block w-full text-[11px] text-slate-200
+                                  file:mr-3 file:py-1.5 file:px-3 file:rounded-full
+                                  file:border-0 file:text-[11px] file:font-medium
+                                  file:bg-slate-800 file:text-slate-100 hover:file:bg-slate-700"
+                           required>
+                    <button
+                        type="submit"
+                        class="inline-flex items-center justify-center rounded-xl bg-slate-800/90 text-[11px] font-medium text-slate-100 border border-slate-700 hover:bg-slate-700 transition px-3 py-1.5">
+                        Import XML
+                    </button>
+                </form>
+
+                <p class="mt-2 text-[10px] text-slate-500">
+                    Advanced users sometimes peek inside the XML and experiment with entities… 👀
+                </p>
             </div>
-        <?php endif; ?>
-
-        <form method="post" enctype="multipart/form-data" class="space-y-2">
-            <input type="hidden" name="import_progress" value="1">
-            <input type="file" name="progress_xml" accept=".xml,text/xml"
-                   class="block w-full text-[11px] text-slate-200
-                          file:mr-3 file:py-1.5 file:px-3 file:rounded-full
-                          file:border-0 file:text-[11px] file:font-medium
-                          file:bg-slate-800 file:text-slate-100 hover:file:bg-slate-700"
-                   required>
-            <button
-                type="submit"
-                class="inline-flex items-center justify-center rounded-xl bg-slate-800/90 text-[11px] font-medium text-slate-100 border border-slate-700 hover:bg-slate-700 transition px-3 py-1.5">
-                Import XML
-            </button>
-        </form>
-
-        <p class="mt-2 text-[10px] text-slate-500">
-            Advanced users sometimes peek inside the XML and experiment with entities… 👀
-        </p>
-    </div>
-</div>
-
-</section>
-
+        </div>
+    </section>
 
     <!-- Track cards -->
     <section class="grid gap-5">
@@ -485,28 +411,28 @@ $filteredTracks = array_filter($tracks, function ($track) use ($activeTag, $acti
                     <div class="flex-1 p-5 lg:p-6 space-y-3">
                         <div class="flex items-center gap-2 text-[11px] uppercase tracking-wide">
                             <span class="rounded-full bg-slate-800/80 border border-slate-700/80 px-2 py-0.5 text-slate-300">
-                                <?php echo htmlspecialchars($track['tag'], ENT_QUOTES, 'UTF-8'); ?>
+                                <?= h($track['tag']) ?>
                             </span>
                             <span class="rounded-full bg-slate-900/90 border border-slate-700/80 px-2 py-0.5 text-slate-300">
-                                <?php echo htmlspecialchars($track['level'], ENT_QUOTES, 'UTF-8'); ?>
+                                <?= h($track['level']) ?>
                             </span>
                             <span class="rounded-full bg-emerald-500/10 border border-emerald-500/40 px-2 py-0.5 text-emerald-300">
-                                <?php echo htmlspecialchars($track['badge'], ENT_QUOTES, 'UTF-8'); ?>
+                                <?= h($track['badge']) ?>
                             </span>
                         </div>
 
                         <h2 class="text-lg md:text-xl font-semibold tracking-tight">
-                            <?php echo htmlspecialchars($track['title'], ENT_QUOTES, 'UTF-8'); ?>
+                            <?= h($track['title']) ?>
                         </h2>
 
                         <p class="text-sm text-slate-300">
-                            <?php echo htmlspecialchars($track['summary'], ENT_QUOTES, 'UTF-8'); ?>
+                            <?= h($track['summary']) ?>
                         </p>
 
                         <div class="flex flex-wrap items-center gap-4 text-[11px] text-slate-400">
-                            <span><?php echo htmlspecialchars($track['duration'], ENT_QUOTES, 'UTF-8'); ?> total</span>
-                            <span><?php echo (int)$track['labs']; ?> labs</span>
-                            <span><?php echo count($track['modules']); ?> modules</span>
+                            <span><?= h($track['duration']) ?> total</span>
+                            <span><?= (int)$track['labs'] ?> labs</span>
+                            <span><?= count($track['modules']) ?> modules</span>
                         </div>
 
                         <div class="mt-3">
@@ -517,10 +443,10 @@ $filteredTracks = array_filter($tracks, function ($track) use ($activeTag, $acti
                                 $preview = array_slice($modules, 0, 3);
                                 foreach ($preview as $mod):
                                     ?>
-                                    <li><?php echo htmlspecialchars($mod, ENT_QUOTES, 'UTF-8'); ?></li>
+                                    <li><?= h($mod) ?></li>
                                 <?php endforeach; ?>
                                 <?php if (count($modules) > 3): ?>
-                                    <li class="text-slate-400">…and <?php echo count($modules) - 3; ?> more modules.</li>
+                                    <li class="text-slate-400">…and <?= count($modules) - 3 ?> more modules.</li>
                                 <?php endif; ?>
                             </ul>
                         </div>
@@ -532,16 +458,16 @@ $filteredTracks = array_filter($tracks, function ($track) use ($activeTag, $acti
                             <div class="flex items-center justify-between gap-2">
                                 <div class="text-xs text-slate-300">
                                     Status:
-                                    <span class="font-medium text-slate-50"><?php echo htmlspecialchars($status, ENT_QUOTES, 'UTF-8'); ?></span>
+                                    <span class="font-medium text-slate-50"><?= h($status) ?></span>
                                 </div>
                                 <div class="text-xs text-slate-400">
-                                    <?php echo $progress; ?>%
+                                    <?= $progress ?>%
                                 </div>
                             </div>
 
                             <div class="h-2 rounded-full bg-slate-800/80 overflow-hidden">
                                 <div class="h-full bg-gradient-to-r from-emerald-400 to-indigo-500"
-                                     style="width: <?php echo max(0, min(100, $progress)); ?>%;"></div>
+                                     style="width: <?= max(0, min(100, $progress)) ?>%;"></div>
                             </div>
 
                             <?php if ($note !== ''): ?>
@@ -559,7 +485,7 @@ $filteredTracks = array_filter($tracks, function ($track) use ($activeTag, $acti
                         </div>
 
                         <form method="post" class="space-y-2 mt-1">
-                            <input type="hidden" name="track_id" value="<?php echo (int)$tid; ?>">
+                            <input type="hidden" name="track_id" value="<?= (int)$tid ?>">
                             <label class="block text-[11px] text-slate-400">
                                 Private note for this track
                             </label>
@@ -567,9 +493,7 @@ $filteredTracks = array_filter($tracks, function ($track) use ($activeTag, $acti
                                 name="note"
                                 rows="2"
                                 class="w-full rounded-xl border border-slate-700/80 bg-slate-950/70 text-xs text-slate-100 px-3 py-2 focus:outline-none focus:ring-1 focus:ring-emerald-400 resize-none"
-                                placeholder="e.g. payload ideas, offsets, or &lt;script&gt; experiments…"><?php
-                                echo htmlspecialchars($note, ENT_QUOTES, 'UTF-8');
-                                ?></textarea>
+                                placeholder="e.g. payload ideas, offsets, or &lt;script&gt; experiments…"><?= h($note) ?></textarea>
 
                             <button type="submit"
                                     class="inline-flex items-center justify-center w-full rounded-xl bg-slate-800/90 text-[11px] font-medium text-slate-100 border border-slate-700 hover:bg-slate-700 transition">
@@ -589,17 +513,4 @@ $filteredTracks = array_filter($tracks, function ($track) use ($activeTag, $acti
     </section>
 </main>
 
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    const toggle = document.getElementById('nav-toggle');
-    const menu   = document.getElementById('mobile-menu');
-
-    if (toggle && menu) {
-        toggle.addEventListener('click', function () {
-            menu.classList.toggle('hidden');
-        });
-    }
-});
-</script>
-</body>
-</html>
+<?php require __DIR__ . '/../shared/footer.php'; ?>

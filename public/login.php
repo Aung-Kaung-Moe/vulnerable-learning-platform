@@ -1,15 +1,8 @@
 <?php
-session_start();
+// public/login.php
 
-$dbHost = 'localhost';
-$dbUser = 'root';
-$dbPass = 'root';
-$dbName = 'sqli_lab';
-
-$mysqli = @new mysqli($dbHost, $dbUser, $dbPass, $dbName);
-if ($mysqli->connect_error) {
-    die('Database connection failed: ' . $mysqli->connect_error);
-}
+require_once __DIR__ . '/../app/auth.php';    // starts session + loads DB
+require_once __DIR__ . '/../app/helpers.php'; // for h()
 
 $loginError      = '';
 $registerError   = '';
@@ -22,16 +15,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $username = $_POST['username'] ?? '';
         $password = $_POST['password'] ?? '';
 
-        $query = "SELECT * FROM users WHERE username = '$username' AND password = '$password' LIMIT 1";
-        $result = $mysqli->query($query);
-
-        if ($result && $result->num_rows === 1) {
-            $row = $result->fetch_assoc();
-
-            $_SESSION['user']  = $row['username'];
-            $_SESSION['email'] = $row['email'];
-            $_SESSION['role']  = $row['role'];
-
+        if (auth_login($username, $password)) {
             header('Location: index.php');
             exit;
         } else {
@@ -40,38 +24,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'register') {
-        $username   = trim($_POST['reg_username'] ?? '');
-        $email      = trim($_POST['reg_email'] ?? '');
-        $password   = $_POST['reg_password'] ?? '';
-        $confirm    = $_POST['reg_confirm'] ?? '';
-        $role       = $_POST['reg_role'] ?? 'user';
+        $username = $_POST['reg_username'] ?? '';
+        $email    = $_POST['reg_email'] ?? '';
+        $password = $_POST['reg_password'] ?? '';
+        $confirm  = $_POST['reg_confirm'] ?? '';
+        $role     = $_POST['reg_role'] ?? 'user';
 
-        if ($username === '' || $email === '' || $password === '' || $confirm === '') {
-            $registerError = 'Please fill in all fields.';
-        } elseif ($password !== $confirm) {
-            $registerError = 'Passwords do not match.';
+        $result = auth_register($username, $email, $password, $confirm, $role);
+
+        if ($result['success']) {
+            $registerSuccess = $result['message'];
         } else {
-            $checkQuery   = "SELECT id FROM users WHERE username = '$username' LIMIT 1";
-            $checkResult = $mysqli->query($checkQuery);
-
-            if ($checkResult && $checkResult->num_rows > 0) {
-                $registerError = 'That username is already taken.';
-            } else {
-                $insertQuery = "
-                    INSERT INTO users (username, email, password, role)
-                    VALUES ('$username', '$email', '$password', '$role')
-                ";
-                if ($mysqli->query($insertQuery)) {
-                    $registerSuccess = 'Account created. You can log in now.';
-                } else {
-                    $registerError = 'Registration failed: ' . $mysqli->error;
-                }
-            }
+            $registerError = $result['error'];
         }
     }
 }
 
-if (isset($_SESSION['user'])) {
+// If already logged in, you *could* redirect straight to dashboard:
+if (auth_is_logged_in()) {
+    // comment this out if you want to stay on login page even when logged in
+    // header('Location: index.php');
+    // exit;
 }
 ?>
 <!DOCTYPE html>
@@ -112,12 +85,13 @@ if (isset($_SESSION['user'])) {
 
             <div class="p-5 space-y-4">
 
+                <!-- LOGIN FORM -->
                 <form id="form-login" method="post" class="space-y-4">
                     <input type="hidden" name="action" value="login">
 
                     <?php if ($loginError): ?>
                         <div class="text-xs rounded-xl border border-red-500/60 bg-red-500/10 text-red-200 px-3 py-2">
-                            <?php echo htmlspecialchars($loginError, ENT_QUOTES, 'UTF-8'); ?>
+                            <?= h($loginError) ?>
                         </div>
                     <?php endif; ?>
 
@@ -167,19 +141,20 @@ if (isset($_SESSION['user'])) {
                     </p>
                 </form>
 
+                <!-- REGISTER FORM -->
                 <form id="form-register" method="post" class="space-y-4 hidden">
                     <input type="hidden" name="action" value="register">
                     <input type="hidden" name="reg_role" value="user">
 
                     <?php if ($registerError): ?>
                         <div class="text-xs rounded-xl border border-red-500/60 bg-red-500/10 text-red-200 px-3 py-2">
-                            <?php echo htmlspecialchars($registerError, ENT_QUOTES, 'UTF-8'); ?>
+                            <?= h($registerError) ?>
                         </div>
                     <?php endif; ?>
 
                     <?php if ($registerSuccess): ?>
                         <div class="text-xs rounded-xl border border-emerald-500/60 bg-emerald-500/10 text-emerald-200 px-3 py-2">
-                            <?php echo htmlspecialchars($registerSuccess, ENT_QUOTES, 'UTF-8'); ?>
+                            <?= h($registerSuccess) ?>
                         </div>
                     <?php endif; ?>
 
@@ -233,8 +208,6 @@ if (isset($_SESSION['user'])) {
 
                     <div class="text-[11px] text-slate-400">
                         Account type: <span class="text-slate-100 font-medium">Student</span>
-                        <span class="block mt-0.5">
-                        </span>
                     </div>
 
                     <button
