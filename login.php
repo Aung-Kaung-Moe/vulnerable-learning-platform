@@ -1,28 +1,77 @@
 <?php
 session_start();
-require_once 'db.php';
 
-$error = '';
+$dbHost = 'localhost';
+$dbUser = 'root';
+$dbPass = 'root';
+$dbName = 'sqli_lab';
+
+$mysqli = @new mysqli($dbHost, $dbUser, $dbPass, $dbName);
+if ($mysqli->connect_error) {
+    die('Database connection failed: ' . $mysqli->connect_error);
+}
+
+$loginError      = '';
+$registerError   = '';
+$registerSuccess = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $username = $_POST['username'] ?? '';
-    $password = $_POST['password'] ?? '';
+    $action = $_POST['action'] ?? '';
 
-    $query = "SELECT * FROM users WHERE username = '$username' AND password = '$password' LIMIT 1";
+    if ($action === 'login') {
+        $username = $_POST['username'] ?? '';
+        $password = $_POST['password'] ?? '';
 
-    $result = $mysqli->query($query);
-    if ($result && $result->num_rows === 1) {
-        $user = $result->fetch_assoc();
+        $query = "SELECT * FROM users WHERE username = '$username' AND password = '$password' LIMIT 1";
+        $result = $mysqli->query($query);
 
-        $_SESSION['user']  = $user['username'];
-        $_SESSION['email'] = $user['email'] ?? '';
-        $_SESSION['role']  = $user['role'] ?? 'user';
+        if ($result && $result->num_rows === 1) {
+            $row = $result->fetch_assoc();
 
-        header('Location: index.php');
-        exit;
-    } else {
-        $error = 'Invalid credentials (or your SQLi failed 😈)';
+            $_SESSION['user']  = $row['username'];
+            $_SESSION['email'] = $row['email'];
+            $_SESSION['role']  = $row['role'];
+
+            header('Location: index.php');
+            exit;
+        } else {
+            $loginError = 'Invalid username or password.';
+        }
     }
+
+    if ($action === 'register') {
+        $username   = trim($_POST['reg_username'] ?? '');
+        $email      = trim($_POST['reg_email'] ?? '');
+        $password   = $_POST['reg_password'] ?? '';
+        $confirm    = $_POST['reg_confirm'] ?? '';
+        $role       = $_POST['reg_role'] ?? 'user';
+
+        if ($username === '' || $email === '' || $password === '' || $confirm === '') {
+            $registerError = 'Please fill in all fields.';
+        } elseif ($password !== $confirm) {
+            $registerError = 'Passwords do not match.';
+        } else {
+            $checkQuery   = "SELECT id FROM users WHERE username = '$username' LIMIT 1";
+            $checkResult = $mysqli->query($checkQuery);
+
+            if ($checkResult && $checkResult->num_rows > 0) {
+                $registerError = 'That username is already taken.';
+            } else {
+                $insertQuery = "
+                    INSERT INTO users (username, email, password, role)
+                    VALUES ('$username', '$email', '$password', '$role')
+                ";
+                if ($mysqli->query($insertQuery)) {
+                    $registerSuccess = 'Account created. You can log in now.';
+                } else {
+                    $registerError = 'Registration failed: ' . $mysqli->error;
+                }
+            }
+        }
+    }
+}
+
+if (isset($_SESSION['user'])) {
 }
 ?>
 <!DOCTYPE html>
@@ -32,74 +81,230 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <title>NovaLearn | Login</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center">
-    <div class="absolute inset-0 -z-10 bg-gradient-to-br from-indigo-500/20 via-slate-900 to-emerald-500/20 blur-3xl opacity-70"></div>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+<div class="pointer-events-none fixed inset-0 -z-10 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950"></div>
+<div class="pointer-events-none fixed inset-0 -z-10 opacity-70 bg-[radial-gradient(circle_at_top,_#22c55e33_0,_transparent_55%)]"></div>
+<div class="pointer-events-none fixed inset-0 -z-10 opacity-50 bg-[radial-gradient(circle_at_bottom,_#6366f133_0,_transparent_60%)]"></div>
 
-    <div class="w-full max-w-md mx-4">
-        <div class="mb-8 text-center">
-            <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-900/80 border border-slate-700/60 shadow-lg shadow-indigo-500/20">
-                <span class="inline-block h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                <span class="text-xs tracking-wide uppercase text-slate-300">
-                    NovaLearn • Offensive Edition
-                </span>
+<div class="flex items-center justify-center min-h-screen px-4">
+    <div class="w-full max-w-md">
+        <div class="flex flex-col items-center mb-6">
+            <div class="h-12 w-12 rounded-3xl bg-gradient-to-br from-emerald-500 to-indigo-500 flex items-center justify-center text-2xl shadow-lg shadow-emerald-500/40">
+                🎓
             </div>
+            <h1 class="mt-3 text-2xl font-semibold tracking-tight">NovaLearn</h1>
+            <p class="text-sm text-slate-400 mt-1">Offensive security learning platform</p>
         </div>
 
-        <div class="bg-slate-900/80 border border-slate-800 rounded-3xl shadow-2xl shadow-black/60 backdrop-blur-xl p-8">
-            <div class="flex items-center justify-between mb-6">
-                <div>
-                    <h1 class="text-2xl font-semibold tracking-tight">Welcome back</h1>
-                    <p class="text-sm text-slate-400 mt-1">
-                        Sign in to your web exploitation lab.
-                    </p>
-                </div>
-                <div class="h-10 w-10 rounded-2xl bg-gradient-to-br from-indigo-500 to-emerald-400 flex items-center justify-center text-xl">
-                    🔐
-                </div>
-            </div>
-
-            <?php if (!empty($error)): ?>
-                <div class="mb-4 text-sm text-rose-300 bg-rose-950/70 border border-rose-800 px-3 py-2 rounded-xl">
-                    <?php echo $error; ?>
-                </div>
-            <?php endif; ?>
-
-            <form method="POST" class="space-y-4">
-                <div>
-                    <label class="block text-sm mb-1 text-slate-300">Username</label>
-                    <input
-                        type="text"
-                        name="username"
-                        class="w-full px-3 py-2 rounded-xl bg-slate-950/80 border border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 placeholder:text-slate-500"
-                        placeholder="Type username"
-                        required
-                    >
-                </div>
-                <div>
-                    <label class="block text-sm mb-1 text-slate-300">Password</label>
-                    <input
-                        type="password"
-                        name="password"
-                        class="w-full px-3 py-2 rounded-xl bg-slate-950/80 border border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 placeholder:text-slate-500"
-                        placeholder="Type password"
-                        required
-                    >
-                </div>
-
+        <div class="rounded-3xl border border-slate-800/80 bg-slate-900/70 shadow-xl shadow-black/40 overflow-hidden">
+            <div class="flex text-xs font-medium text-slate-300 border-b border-slate-800/80">
                 <button
-                    type="submit"
-                    class="w-full mt-2 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-emerald-500 text-sm font-medium shadow-lg shadow-indigo-500/40 hover:shadow-emerald-500/40 hover:-translate-y-[1px] transition-all"
-                >
-                    <span>Login</span>
-                    <span class="text-lg">➡️</span>
+                    id="tab-login"
+                    class="flex-1 py-3 text-center cursor-pointer relative border-b-2 border-emerald-400 bg-slate-900/90">
+                    Login
                 </button>
-            </form>
+                <button
+                    id="tab-register"
+                    class="flex-1 py-3 text-center cursor-pointer relative border-b-2 border-transparent hover:border-slate-700/80">
+                    Register
+                </button>
+            </div>
 
-            <div class="mt-6 text-xs text-slate-500 border-t border-slate-800 pt-4 space-y-1">
-                <p><strong>Note:</strong> This app is intentionally vulnerable. Lab only, not for production.</p>
-                <p>Try SQL injection in the username field to bypass password checks.</p>
+            <div class="p-5 space-y-4">
+
+                <form id="form-login" method="post" class="space-y-4">
+                    <input type="hidden" name="action" value="login">
+
+                    <?php if ($loginError): ?>
+                        <div class="text-xs rounded-xl border border-red-500/60 bg-red-500/10 text-red-200 px-3 py-2">
+                            <?php echo htmlspecialchars($loginError, ENT_QUOTES, 'UTF-8'); ?>
+                        </div>
+                    <?php endif; ?>
+
+                    <div class="space-y-1">
+                        <label for="username" class="text-xs text-slate-300">Username</label>
+                        <input
+                            type="text"
+                            id="username"
+                            name="username"
+                            class="w-full rounded-xl border border-slate-700/80 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                            placeholder="e.g. student"
+                            required
+                        >
+                    </div>
+
+                    <div class="space-y-1">
+                        <label for="password" class="text-xs text-slate-300">Password</label>
+                        <input
+                            type="password"
+                            id="password"
+                            name="password"
+                            class="w-full rounded-xl border border-slate-700/80 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                            placeholder="••••••••"
+                            required
+                        >
+                    </div>
+
+                    <div class="flex items-center justify-between text-[11px] text-slate-400">
+                        <span>Tip: try basic SQL tricks here.</span>
+                        <a href="#" class="text-emerald-300 hover:text-emerald-200">Forgot password?</a>
+                    </div>
+
+                    <button
+                        type="submit"
+                        class="w-full inline-flex items-center justify-center rounded-xl bg-emerald-500/90 text-slate-950 text-sm font-medium py-2.5 hover:bg-emerald-400 transition">
+                        Sign in
+                    </button>
+
+                    <p class="text-[11px] text-slate-400 text-center">
+                        New here?
+                        <button
+                            type="button"
+                            id="switch-to-register"
+                            class="text-emerald-300 hover:text-emerald-200 underline underline-offset-2">
+                            Create an account
+                        </button>
+                    </p>
+                </form>
+
+                <form id="form-register" method="post" class="space-y-4 hidden">
+                    <input type="hidden" name="action" value="register">
+                    <input type="hidden" name="reg_role" value="user">
+
+                    <?php if ($registerError): ?>
+                        <div class="text-xs rounded-xl border border-red-500/60 bg-red-500/10 text-red-200 px-3 py-2">
+                            <?php echo htmlspecialchars($registerError, ENT_QUOTES, 'UTF-8'); ?>
+                        </div>
+                    <?php endif; ?>
+
+                    <?php if ($registerSuccess): ?>
+                        <div class="text-xs rounded-xl border border-emerald-500/60 bg-emerald-500/10 text-emerald-200 px-3 py-2">
+                            <?php echo htmlspecialchars($registerSuccess, ENT_QUOTES, 'UTF-8'); ?>
+                        </div>
+                    <?php endif; ?>
+
+                    <div class="space-y-1">
+                        <label for="reg_username" class="text-xs text-slate-300">Username</label>
+                        <input
+                            type="text"
+                            id="reg_username"
+                            name="reg_username"
+                            class="w-full rounded-xl border border-slate-700/80 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                            placeholder="Pick a handle"
+                            required
+                        >
+                    </div>
+
+                    <div class="space-y-1">
+                        <label for="reg_email" class="text-xs text-slate-300">Email</label>
+                        <input
+                            type="email"
+                            id="reg_email"
+                            name="reg_email"
+                            class="w-full rounded-xl border border-slate-700/80 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                            placeholder="you@example.com"
+                            required
+                        >
+                    </div>
+
+                    <div class="space-y-1">
+                        <label for="reg_password" class="text-xs text-slate-300">Password</label>
+                        <input
+                            type="password"
+                            id="reg_password"
+                            name="reg_password"
+                            class="w-full rounded-xl border border-slate-700/80 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                            placeholder="••••••••"
+                            required
+                        >
+                    </div>
+
+                    <div class="space-y-1">
+                        <label for="reg_confirm" class="text-xs text-slate-300">Confirm password</label>
+                        <input
+                            type="password"
+                            id="reg_confirm"
+                            name="reg_confirm"
+                            class="w-full rounded-xl border border-slate-700/80 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                            placeholder="••••••••"
+                            required
+                        >
+                    </div>
+
+                    <div class="text-[11px] text-slate-400">
+                        Account type: <span class="text-slate-100 font-medium">Student</span>
+                        <span class="block mt-0.5">
+                        </span>
+                    </div>
+
+                    <button
+                        type="submit"
+                        class="w-full inline-flex items-center justify-center rounded-xl bg-slate-800/90 text-slate-100 text-sm font-medium py-2.5 border border-slate-700 hover:bg-slate-700 transition">
+                        Create account
+                    </button>
+
+                    <p class="text-[11px] text-slate-400 text-center">
+                        Already have an account?
+                        <button
+                            type="button"
+                            id="switch-to-login"
+                            class="text-emerald-300 hover:text-emerald-200 underline underline-offset-2">
+                            Sign in
+                        </button>
+                    </p>
+                </form>
             </div>
         </div>
+
+        <p class="mt-4 text-[11px] text-slate-500 text-center">
+            Built for practice. Do not reuse real passwords.
+        </p>
     </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const tabLogin       = document.getElementById('tab-login');
+    const tabRegister    = document.getElementById('tab-register');
+    const formLogin      = document.getElementById('form-login');
+    const formRegister   = document.getElementById('form-register');
+    const switchToReg    = document.getElementById('switch-to-register');
+    const switchToLogin  = document.getElementById('switch-to-login');
+
+    function showLogin() {
+        tabLogin.classList.add('border-emerald-400', 'bg-slate-900/90');
+        tabLogin.classList.remove('border-transparent');
+        tabRegister.classList.remove('border-emerald-400', 'bg-slate-900/90');
+        tabRegister.classList.add('border-transparent');
+
+        formLogin.classList.remove('hidden');
+        formRegister.classList.add('hidden');
+    }
+
+    function showRegister() {
+        tabRegister.classList.add('border-emerald-400', 'bg-slate-900/90');
+        tabRegister.classList.remove('border-transparent');
+        tabLogin.classList.remove('border-emerald-400', 'bg-slate-900/90');
+        tabLogin.classList.add('border-transparent');
+
+        formRegister.classList.remove('hidden');
+        formLogin.classList.add('hidden');
+    }
+
+    tabLogin.addEventListener('click', showLogin);
+    tabRegister.addEventListener('click', showRegister);
+
+    if (switchToReg) {
+        switchToReg.addEventListener('click', showRegister);
+    }
+    if (switchToLogin) {
+        switchToLogin.addEventListener('click', showLogin);
+    }
+
+    <?php if ($registerError || $registerSuccess): ?>
+    showRegister();
+    <?php endif; ?>
+});
+</script>
 </body>
 </html>
